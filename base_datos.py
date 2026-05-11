@@ -29,12 +29,18 @@ def iniciar_db():
         fecha TEXT, hora TEXT, descripcion TEXT, completada INTEGER DEFAULT 0,
         id_exp INTEGER)''')
 
-    # == NUEVA TABLA DE PLANTILLAS ==
     cursor.execute('''CREATE TABLE IF NOT EXISTS plantillas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         titulo TEXT, contenido TEXT)''')
 
-    # Cargamos las plantillas por defecto solo si la tabla está vacía
+    # === NUEVA TABLA: PERFIL DEL USUARIO (Para comercialización) ===
+    cursor.execute('''CREATE TABLE IF NOT EXISTS usuario (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT, matricula TEXT, telefono TEXT, email TEXT,
+        domicilio TEXT, usar_membrete INTEGER DEFAULT 1,
+        posicion TEXT DEFAULT 'Derecha')''')
+
+    # Cargamos las plantillas por defecto si está vacío
     cursor.execute("SELECT count(*) FROM plantillas")
     if cursor.fetchone()[0] == 0:
         plantillas_base = [
@@ -44,6 +50,12 @@ def iniciar_db():
         ]
         cursor.executemany("INSERT INTO plantillas (titulo, contenido) VALUES (?, ?)", plantillas_base)
 
+    # Creamos un usuario en blanco por defecto si no existe
+    cursor.execute("SELECT count(*) FROM usuario")
+    if cursor.fetchone()[0] == 0:
+        cursor.execute("INSERT INTO usuario (nombre, matricula, telefono, email, domicilio, usar_membrete, posicion) VALUES ('', '', '', '', '', 1, 'Derecha')")
+
+    # Intentos de actualización para tablas viejas
     try: cursor.execute("ALTER TABLE movimientos ADD COLUMN origen TEXT DEFAULT 'Otros'")
     except sqlite3.OperationalError: pass 
     try: cursor.execute("ALTER TABLE movimientos ADD COLUMN resaltado INTEGER DEFAULT 0")

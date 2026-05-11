@@ -2,9 +2,9 @@ import sys
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLineEdit, QTreeWidget, QTreeWidgetItem, 
                              QLabel, QFrame, QSplitter, QDialog, QFormLayout, 
-                             QComboBox, QTabWidget, QCalendarWidget, QScrollArea, QMessageBox)
+                             QComboBox, QTabWidget, QCalendarWidget, QScrollArea, QMessageBox, QMenuBar, QCheckBox)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont, QColor, QAction
 import base_datos
 from folder_view import VentanaCarpeta
 from agenda_view import VentanaAgenda
@@ -17,6 +17,75 @@ BG_PANEL_IZQ = "#ffffff"
 BG_BLANCO = "#ffffff"      
 SELECCION_AZUL = "#b3e5fc" 
 
+# === NUEVA VENTANA: CONFIGURACIÓN DE USUARIO ===
+class VentanaPerfil(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configuración del Perfil Profesional")
+        self.resize(450, 400)
+        self.setStyleSheet(f"background-color: {BG_POSTIT};")
+        
+        layout = QVBoxLayout(self)
+        
+        lbl_info = QLabel("<b>Complete sus datos para automatizar el Membrete en sus PDFs:</b>")
+        layout.addWidget(lbl_info)
+        
+        form = QFormLayout()
+        self.ent_nombre = QLineEdit()
+        self.ent_mat = QLineEdit()
+        self.ent_tel = QLineEdit()
+        self.ent_mail = QLineEdit()
+        self.ent_dom = QLineEdit()
+        
+        form.addRow("Nombre / Estudio:", self.ent_nombre)
+        form.addRow("Matrícula:", self.ent_mat)
+        form.addRow("Teléfono:", self.ent_tel)
+        form.addRow("Email:", self.ent_mail)
+        form.addRow("Domicilio Legal:", self.ent_dom)
+        layout.addLayout(form)
+        
+        layout.addWidget(QLabel("<hr><b>Ajustes del Membrete:</b>"))
+        
+        self.chk_usar = QCheckBox("Incluir membrete automáticamente al exportar a PDF")
+        layout.addWidget(self.chk_usar)
+        
+        f_pos = QHBoxLayout()
+        f_pos.addWidget(QLabel("Posición en la hoja:"))
+        self.cmb_posicion = QComboBox()
+        self.cmb_posicion.addItems(["Izquierda", "Centro", "Derecha"])
+        f_pos.addWidget(self.cmb_posicion)
+        layout.addLayout(f_pos)
+        
+        btn_guardar = QPushButton("💾 GUARDAR CAMBIOS")
+        btn_guardar.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; font-weight: bold; border-radius: 4px;")
+        btn_guardar.clicked.connect(self.guardar_datos)
+        layout.addWidget(btn_guardar)
+        
+        self.cargar_datos()
+
+    def cargar_datos(self):
+        conn = base_datos.conectar()
+        usr = conn.execute("SELECT nombre, matricula, telefono, email, domicilio, usar_membrete, posicion FROM usuario WHERE id=1").fetchone()
+        conn.close()
+        if usr:
+            self.ent_nombre.setText(usr[0])
+            self.ent_mat.setText(usr[1])
+            self.ent_tel.setText(usr[2])
+            self.ent_mail.setText(usr[3])
+            self.ent_dom.setText(usr[4])
+            self.chk_usar.setChecked(bool(usr[5]))
+            self.cmb_posicion.setCurrentText(usr[6])
+
+    def guardar_datos(self):
+        conn = base_datos.conectar()
+        conn.execute("UPDATE usuario SET nombre=?, matricula=?, telefono=?, email=?, domicilio=?, usar_membrete=?, posicion=? WHERE id=1",
+                     (self.ent_nombre.text(), self.ent_mat.text(), self.ent_tel.text(), self.ent_mail.text(), self.ent_dom.text(), 
+                      int(self.chk_usar.isChecked()), self.cmb_posicion.currentText()))
+        conn.commit(); conn.close()
+        QMessageBox.information(self, "Guardado", "Perfil actualizado correctamente.")
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -27,6 +96,8 @@ class MainWindow(QMainWindow):
 
         self.carpetas_abiertas = {}
         self.agenda_abierta = None
+
+        self.crear_menu_superior() # NUEVO LLAMADO
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -40,11 +111,30 @@ class MainWindow(QMainWindow):
         self.setup_panel_derecho()
         self.actualizar_lista()
         
-        # == EJECUCIÓN DE ALERTA AL INICIAR ==
         self.verificar_alertas_hoy()
 
+    # === EL NUEVO MENÚ SUPERIOR (Zona Roja) ===
+    def crear_menu_superior(self):
+        barra_menu = self.menuBar()
+        # Le damos un color gris/azulado elegante
+        barra_menu.setStyleSheet("QMenuBar { background-color: #eceff1; font-weight: bold; padding: 3px; border-bottom: 1px solid #ccc; } QMenuBar::item:selected { background-color: #cfd8dc; }")
+        
+        menu_perfil = barra_menu.addMenu("👤 Mi Perfil")
+        
+        act_configurar = QAction("⚙️ Configurar Datos y Membrete...", self)
+        act_configurar.triggered.connect(self.abrir_perfil)
+        menu_perfil.addAction(act_configurar)
+        
+        # Dejamos preparados los menús futuros
+        menu_herramientas = barra_menu.addMenu("🛠️ Herramientas Rápidas")
+        menu_herramientas.addAction(QAction("Calculadora de Plazos (Próximamente)", self))
+        menu_herramientas.addAction(QAction("Repositorio de Plantillas (Próximamente)", self))
+
+    def abrir_perfil(self):
+        dlg = VentanaPerfil(self)
+        dlg.exec()
+
     def verificar_alertas_hoy(self):
-        """Escanea tareas pendientes de hoy y lanza una alerta rojo pastel"""
         hoy_str = datetime.now().strftime("%d/%m/%Y")
         conn = base_datos.conectar()
         tareas_hoy = conn.execute("SELECT hora, descripcion FROM tareas WHERE fecha=? AND completada=0", (hoy_str,)).fetchall()
@@ -54,20 +144,11 @@ class MainWindow(QMainWindow):
             msg = QMessageBox(self)
             msg.setWindowTitle("Vencimientos de Hoy")
             msg.setIcon(QMessageBox.Icon.Warning)
-            
             texto_html = "<h3>¡Atención! Tienes tareas pendientes para hoy:</h3><ul>"
-            for t in tareas_hoy:
-                texto_html += f"<li><b>{t[0]} hs:</b> {t[1]}</li>"
+            for t in tareas_hoy: texto_html += f"<li><b>{t[0]} hs:</b> {t[1]}</li>"
             texto_html += "</ul><br>Revisa 'Mi Agenda' para más detalles."
-            
             msg.setText(texto_html)
-            # Estética Rojo Pastel requerida
-            msg.setStyleSheet("""
-                QMessageBox { background-color: #ffcdd2; } 
-                QLabel { color: #b71c1c; font-size: 11pt; } 
-                QPushButton { background-color: white; color: black; border: 1px solid #b71c1c; padding: 6px; font-weight: bold; border-radius: 4px;}
-                QPushButton:hover { background-color: #ffebee; }
-            """)
+            msg.setStyleSheet("QMessageBox { background-color: #ffcdd2; } QLabel { color: #b71c1c; font-size: 11pt; } QPushButton { background-color: white; color: black; border: 1px solid #b71c1c; padding: 6px; font-weight: bold; border-radius: 4px;} QPushButton:hover { background-color: #ffebee; }")
             msg.exec()
 
     def setup_panel_izquierdo(self):
@@ -80,7 +161,6 @@ class MainWindow(QMainWindow):
         lbl_trabajando = QLabel("TRABAJANDO EN:")
         lbl_trabajando.setFont(QFont("Arial", 9, QFont.Weight.Bold))
         lbl_trabajando.setStyleSheet("border: none; color: #333;")
-        lbl_trabajando.setToolTip("Panel de acceso rápido a sus ventanas abiertas.")
         layout.addWidget(lbl_trabajando)
 
         self.contenedor_botones = QWidget()
@@ -100,11 +180,7 @@ class MainWindow(QMainWindow):
         self.mini_cal = QCalendarWidget()
         self.mini_cal.setGridVisible(True)
         self.mini_cal.setFixedHeight(180)
-        self.mini_cal.setToolTip("Calendario rápido de consulta.")
-        self.mini_cal.setStyleSheet(f"""
-            QCalendarWidget QWidget {{ alternate-background-color: {BG_BLANCO}; }}
-            QCalendarWidget QAbstractItemView:enabled {{ font-size: 8pt; background-color: {BG_BLANCO}; selection-background-color: {SELECCION_AZUL}; selection-color: black; }}
-        """)
+        self.mini_cal.setStyleSheet(f"QCalendarWidget QWidget {{ alternate-background-color: {BG_BLANCO}; }} QCalendarWidget QAbstractItemView:enabled {{ font-size: 8pt; background-color: {BG_BLANCO}; selection-background-color: {SELECCION_AZUL}; selection-color: black; }}")
         layout.addWidget(self.mini_cal)
         self.splitter.addWidget(self.panel_izq)
 
@@ -114,7 +190,6 @@ class MainWindow(QMainWindow):
             if item.widget(): item.widget().deleteLater()
 
         btn_agenda = QPushButton("📅 MI AGENDA")
-        btn_agenda.setToolTip("Abre su agenda principal de tareas y vencimientos procesales.")
         btn_agenda.setStyleSheet("QPushButton { background-color: #ffe0b2; color: #e65100; border: 1px solid #ffcc80; padding: 8px; font-weight: bold; border-radius: 4px; } QPushButton:hover { background-color: #ffcc80; }")
         btn_agenda.clicked.connect(self.abrir_agenda)
         self.layout_botones.addWidget(btn_agenda)
@@ -126,7 +201,6 @@ class MainWindow(QMainWindow):
             nombre = (res[0][:28] + "...") if res and len(res[0]) > 28 else (res[0] if res else "Expediente")
             
             btn_exp = QPushButton(f"📂 {nombre}")
-            btn_exp.setToolTip(f"Volver a la carpeta del expediente: {res[0]}")
             btn_exp.setStyleSheet("QPushButton { background-color: white; color: #333; border: 1px solid #ccc; padding: 6px; text-align: left; border-radius: 4px; } QPushButton:hover { background-color: #e3f2fd; }")
             btn_exp.clicked.connect(lambda checked, v=ventana: v.activateWindow())
             self.layout_botones.addWidget(btn_exp)
@@ -139,13 +213,11 @@ class MainWindow(QMainWindow):
 
         barra_sup = QHBoxLayout()
         self.btn_nuevo = QPushButton("+ NUEVO EXPEDIENTE")
-        self.btn_nuevo.setToolTip("Inicia la carga de una nueva ficha de expediente completo.")
         self.btn_nuevo.setStyleSheet("background-color: #c8e6c9; color: #2e7d32; border: 1px solid #a5d6a7; padding: 8px; font-weight: bold; border-radius: 4px;")
         self.btn_nuevo.clicked.connect(self.formulario_expediente)
         
         self.buscador = QLineEdit()
         self.buscador.setPlaceholderText("Buscar por carátula o número...")
-        self.buscador.setToolTip("Escriba para filtrar automáticamente la lista de abajo.")
         self.buscador.setStyleSheet(f"background-color: {BG_BLANCO}; padding: 8px; border: 1px solid #ccc; border-radius: 4px;")
         self.buscador.textChanged.connect(self.actualizar_lista)
 
@@ -158,7 +230,6 @@ class MainWindow(QMainWindow):
         self.tree.setHeaderLabels(["Nro Expediente", "Carátula", "ID"])
         self.tree.setColumnWidth(0, 150)
         self.tree.hideColumn(2)
-        self.tree.setToolTip("Haga doble clic sobre una fila para abrir la carpeta del expediente.")
         self.tree.setStyleSheet(f"QTreeWidget {{ background-color: {BG_BLANCO}; alternate-background-color: #fcfcfc; border: 1px solid #ccc; font-size: 10pt; }} QTreeWidget::item:selected {{ background-color: {SELECCION_AZUL}; color: black; font-weight: bold; }} QHeaderView::section {{ background-color: #e0e0e0; padding: 4px; border: 1px solid #ccc; font-weight: bold; }}")
         self.tree.setAlternatingRowColors(True)
         self.tree.itemDoubleClicked.connect(self.abrir_carpeta)
@@ -253,7 +324,6 @@ class MainWindow(QMainWindow):
         tabs.addTab(tab_dem, "Parte Demandada")
 
         btn_guardar = QPushButton("💾 GUARDAR FICHA COMPLETA")
-        btn_guardar.setToolTip("Guarda la información en la base de datos (Atajo: Presione Enter)")
         btn_guardar.setStyleSheet("background-color: #0078d7; color: white; padding: 10px; font-weight: bold; border-radius: 4px;")
         layout.addWidget(btn_guardar)
 
@@ -265,8 +335,6 @@ class MainWindow(QMainWindow):
             conn.commit(); conn.close(); self.actualizar_lista(); dlg.accept()
 
         btn_guardar.clicked.connect(guardar)
-
         for widget in campos.values():
             if isinstance(widget, QLineEdit): widget.returnPressed.connect(guardar)
-
         dlg.exec()
