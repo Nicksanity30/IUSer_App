@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <title>Editor IUSer - Quill Pro</title>
+    <link href="quill/quill.snow.css" rel="stylesheet">
+    <script src="quill/quill.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; background-color: #f3f2f1; }
+        
+        .contenedor-hoja { 
+            max-width: 820px; 
+            margin: 20px auto; 
+            background: white; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); 
+            display: flex; 
+            flex-direction: column; 
+            height: 90vh; 
+        }
+        
+        #toolbar-container { border: none !important; border-bottom: 1px solid #d1d1d1 !important; background-color: #f8f9fa; padding: 10px; }
+        #editor_texto { flex-grow: 1; border: none !important; }
+        
+        /* Definimos los estilos base del editor */
+        .ql-editor { font-family: 'Arial', sans-serif; font-size: 12pt; padding: 40px 50px; line-height: 1.5; color: #333; }
+
+        /* =========================================
+           CLASES CSS PARA LAS NUEVAS FUENTES
+           ========================================= */
+        .ql-font-arial { font-family: 'Arial', sans-serif; }
+        .ql-font-times-new-roman { font-family: 'Times New Roman', serif; }
+        .ql-font-courier { font-family: 'Courier New', monospace; }
+        .ql-font-georgia { font-family: 'Georgia', serif; }
+    </style>
+</head>
+<body>
+    <div class="contenedor-hoja">
+        <div id="toolbar-container"></div>
+        
+        <div id="editor_texto"></div>
+    </div>
+
+    <script>
+        // 1. Registramos las fuentes personalizadas en el motor de Quill
+        var Font = Quill.import('formats/font');
+        Font.whitelist = ['arial', 'times-new-roman', 'courier', 'georgia'];
+        Quill.register(Font, true);
+
+        // 2. Encendemos todas las herramientas en la barra
+        var toolbarOptions = [
+            [{ 'font': Font.whitelist }],                 // Selector de Fuente
+            [{ 'size': ['small', false, 'large', 'huge'] }], // Tamaño
+            
+            ['bold', 'italic', 'underline', 'strike'],    // Estilos básicos
+            
+            [{ 'color': [] }, { 'background': [] }],      // Colores de texto y resaltado
+            
+            [{ 'script': 'sub'}, { 'script': 'super' }],  // Subíndice y Superíndice
+            
+            [{ 'align': [] }],                            // Alineación (Izquierda, Centro, Derecha, Justificado)
+            
+            [{ 'list': 'ordered'}, { 'list': 'bullet' }], // Listas
+            [{ 'indent': '-1'}, { 'indent': '+1' }],      // Sangrías (Disminuir / Aumentar)
+            
+            ['clean']                                     // Botón "Quitar Formato" (la T con la cruz)
+        ];
+
+        // 3. Inicializamos el editor con todo el poder
+        var quill = new Quill('#editor_texto', {
+            modules: {
+                toolbar: toolbarOptions
+            },
+            theme: 'snow'
+        });
+
+        // ==========================================
+        // FUNCIONES PUENTE PARA COMUNICAR CON PYTHON
+        // ==========================================
+        function getEditorHtml() {
+            return quill.root.innerHTML;
+        }
+
+        function setEditorHtml(html) {
+            quill.root.innerHTML = html;
+        }
+    </script>
+</body>
+</html>

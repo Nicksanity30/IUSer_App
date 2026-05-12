@@ -1,236 +1,169 @@
-import sys
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
-                             QLineEdit, QTreeWidget, QTreeWidgetItem, QLabel, 
-                             QTextEdit, QSplitter, QWidget, QMessageBox, QFormLayout)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor
 import base_datos
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QListWidget, 
+                             QPushButton, QLabel, QMessageBox, QLineEdit, QTextEdit)
+from PyQt6.QtCore import Qt
+from jinja2 import Environment
+from datetime import datetime
 
-class EditorDePlantilla(QDialog):
-    """Mini-ventana para Crear o Editar una plantilla directamente en el gestor"""
-    def __init__(self, parent=None, id_plantilla=None, titulo="", html=""):
-        super().__init__(parent)
-        self.setWindowTitle("Editor de Plantillas Maestras")
-        self.resize(800, 600)
-        self.setStyleSheet("background-color: #f8f9fa;")
-        self.id_plantilla = id_plantilla
+class GestorPlantillas(QDialog):
+    def __init__(self, editor_proxy=None, id_exp=None):
+        super().__init__()
+        self.setWindowTitle("Administrador de Plantillas Inteligentes")
+        self.resize(800, 500) # Lo hicimos más grande para poder redactar cómodo
+        self.editor_proxy = editor_proxy
+        self.id_exp = id_exp
+        
+        self.plantilla_actual_id = None
 
-        layout = QVBoxLayout(self)
+        # ¡Magia! Esta línea auto-repara la base de datos para que no tire error
+        self.reparar_base_datos()
 
-        # Caja de Título
-        f_titulo = QHBoxLayout()
-        f_titulo.addWidget(QLabel("<b>Título de la Plantilla:</b>"))
-        self.ent_titulo = QLineEdit(titulo)
-        self.ent_titulo.setStyleSheet("padding: 5px; background: white; border: 1px solid #ccc;")
-        f_titulo.addWidget(self.ent_titulo)
-        layout.addLayout(f_titulo)
+        layout_principal = QHBoxLayout(self)
 
-        # Diccionario de Variables Mágicas (Estilo Lex Doctor)
-        lbl_ayuda = QLabel(
-            "<b>Etiquetas Inteligentes (Copiá y pegá estas etiquetas en tu texto, se llenarán solas al insertar):</b><br>"
-            "<span style='color: #d32f2f;'>[@CARATULA] | [@NRO_EXP] | [@JUZGADO] | [@ACTOR_NOMBRE] | [@ACTOR_DNI] | [@ACTOR_DOMICILIO] | [@DEMANDADO_NOMBRE] | [@DEMANDADO_DNI] | [@DEMANDADO_DOMICILIO]</span>"
-        )
-        lbl_ayuda.setStyleSheet("background-color: #fff9c4; padding: 8px; border: 1px dashed #fbc02d;")
-        lbl_ayuda.setWordWrap(True)
-        layout.addWidget(lbl_ayuda)
+        # --- PANEL IZQUIERDO: LISTA DE PLANTILLAS ---
+        panel_izq = QVBoxLayout()
+        panel_izq.addWidget(QLabel("Tus Plantillas Guardadas:"))
+        
+        self.lista_plantillas = QListWidget()
+        self.lista_plantillas.itemClicked.connect(self.cargar_plantilla_en_editor)
+        panel_izq.addWidget(self.lista_plantillas)
 
-        # Editor de HTML
-        self.editor = QTextEdit()
-        self.editor.setHtml(html)
-        self.editor.setStyleSheet("background: white; border: 1px solid #ccc; font-family: Arial; font-size: 11pt;")
-        layout.addWidget(self.editor)
+        botones_lista = QHBoxLayout()
+        btn_nueva = QPushButton("➕ Nueva")
+        btn_nueva.clicked.connect(self.limpiar_editor)
+        btn_eliminar = QPushButton("🗑️ Eliminar")
+        btn_eliminar.setStyleSheet("color: #d32f2f;")
+        btn_eliminar.clicked.connect(self.eliminar_plantilla)
+        
+        botones_lista.addWidget(btn_nueva)
+        botones_lista.addWidget(btn_eliminar)
+        panel_izq.addLayout(botones_lista)
 
-        # Botones
-        f_btn = QHBoxLayout()
+        # --- PANEL DERECHO: EDITOR DE PLANTILLA ---
+        panel_der = QVBoxLayout()
+        
+        self.ent_nombre = QLineEdit()
+        self.ent_nombre.setPlaceholderText("Nombre (ej: Presenta Bono y Tasa)")
+        panel_der.addWidget(QLabel("Nombre de la Plantilla:"))
+        panel_der.addWidget(self.ent_nombre)
+
+        self.ent_contenido = QTextEdit()
+        self.ent_contenido.setPlaceholderText("Escriba aquí el modelo usando las variables:\n/// caratula ///\n/// nro_exp ///\n/// juzgado ///\n/// actor ///\n/// abogado_nombre ///\n/// abogado_matricula ///")
+        panel_der.addWidget(QLabel("Contenido del Escrito:"))
+        panel_der.addWidget(self.ent_contenido)
+
+        botones_editor = QHBoxLayout()
         btn_guardar = QPushButton("💾 Guardar Plantilla")
-        btn_guardar.setStyleSheet("background-color: #0078d7; color: white; padding: 10px; font-weight: bold; border-radius: 4px;")
-        btn_guardar.clicked.connect(self.guardar)
-        
-        btn_cancelar = QPushButton("Cancelar")
-        btn_cancelar.clicked.connect(self.reject)
-        
-        f_btn.addStretch()
-        f_btn.addWidget(btn_cancelar)
-        f_btn.addWidget(btn_guardar)
-        layout.addLayout(f_btn)
+        btn_guardar.setStyleSheet("background-color: #1976d2; color: white; font-weight: bold; padding: 8px; border-radius: 3px;")
+        btn_guardar.clicked.connect(self.guardar_plantilla)
+        botones_editor.addStretch()
+        botones_editor.addWidget(btn_guardar)
 
-    def guardar(self):
-        t = self.ent_titulo.text().strip()
-        h = self.editor.toHtml()
-        if not t:
-            QMessageBox.warning(self, "Aviso", "El título no puede estar vacío.")
+        # Botón Insertar (Solo aparece si estamos dentro de un expediente)
+        if self.editor_proxy:
+            btn_insertar = QPushButton("🚀 Insertar en Escrito")
+            btn_insertar.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 8px; border-radius: 3px;")
+            btn_insertar.clicked.connect(self.procesar_y_enviar)
+            botones_editor.addWidget(btn_insertar)
+
+        panel_der.addLayout(botones_editor)
+
+        # Unimos los dos paneles (1/3 de ancho para la lista, 2/3 para el editor)
+        layout_principal.addLayout(panel_izq, 1) 
+        layout_principal.addLayout(panel_der, 2) 
+
+        self.cargar_lista()
+
+    # ==========================================
+    # LÓGICA DE BASE DE DATOS Y CRUD
+    # ==========================================
+    def reparar_base_datos(self):
+        """Asegura que la tabla exista y tenga las columnas correctas sin borrar datos"""
+        conn = base_datos.conectar()
+        try:
+            conn.execute("CREATE TABLE IF NOT EXISTS plantillas (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, contenido TEXT)")
+            try: conn.execute("ALTER TABLE plantillas ADD COLUMN nombre TEXT")
+            except: pass
+            try: conn.execute("ALTER TABLE plantillas ADD COLUMN contenido TEXT")
+            except: pass
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    def cargar_lista(self):
+        self.lista_plantillas.clear()
+        conn = base_datos.conectar()
+        try:
+            plantillas = conn.execute("SELECT id, nombre FROM plantillas ORDER BY nombre").fetchall()
+            for p in plantillas:
+                from PyQt6.QtWidgets import QListWidgetItem
+                item = QListWidgetItem(p[1])
+                item.setData(Qt.ItemDataRole.UserRole, p[0]) # Escondemos el ID en el item
+                self.lista_plantillas.addItem(item)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error al cargar: {e}")
+        finally:
+            conn.close()
+
+    def limpiar_editor(self):
+        self.plantilla_actual_id = None
+        self.ent_nombre.clear()
+        self.ent_contenido.clear()
+        self.lista_plantillas.clearSelection()
+
+    def cargar_plantilla_en_editor(self, item):
+        self.plantilla_actual_id = item.data(Qt.ItemDataRole.UserRole)
+        conn = base_datos.conectar()
+        res = conn.execute("SELECT nombre, contenido FROM plantillas WHERE id=?", (self.plantilla_actual_id,)).fetchone()
+        conn.close()
+        
+        if res:
+            self.ent_nombre.setText(res[0])
+            self.ent_contenido.setPlainText(res[1])
+
+    def guardar_plantilla(self):
+        nombre = self.ent_nombre.text().strip()
+        contenido = self.ent_contenido.toPlainText().strip()
+        
+        if not nombre:
+            QMessageBox.warning(self, "Atención", "El nombre no puede estar vacío.")
             return
 
         conn = base_datos.conectar()
-        if self.id_plantilla:
-            conn.execute("UPDATE plantillas SET titulo=?, contenido=? WHERE id=?", (t, h, self.id_plantilla))
+        if self.plantilla_actual_id:
+            conn.execute("UPDATE plantillas SET nombre=?, contenido=? WHERE id=?", (nombre, contenido, self.plantilla_actual_id))
         else:
-            conn.execute("INSERT INTO plantillas (titulo, contenido) VALUES (?, ?)", (t, h))
-        conn.commit(); conn.close()
-        self.accept()
-
-
-class GestorPlantillas(QDialog):
-    def __init__(self, editor_padre, id_exp_actual):
-        super().__init__(editor_padre)
-        self.editor_padre = editor_padre
-        self.id_exp_actual = id_exp_actual
+            conn.execute("INSERT INTO plantillas (nombre, contenido) VALUES (?, ?)", (nombre, contenido))
+        conn.commit()
+        conn.close()
         
-        self.setWindowTitle("Gestor de Plantillas Dinámicas - IUSer")
-        
-        # == TAMAÑO CORREGIDO: Más ancha según lo pedido ==
-        self.resize(1300, 550)
-        self.setStyleSheet("background-color: #fffde7;") 
-        
-        layout = QVBoxLayout(self)
-        
-        # Barra de Herramientas Superior
-        barra_sup = QHBoxLayout()
-        self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText("Buscar plantilla por título o contenido...")
-        self.buscador.setStyleSheet("background-color: white; padding: 8px; border: 1px solid #ccc; border-radius: 3px; font-size: 10pt;")
-        self.buscador.textChanged.connect(self.cargar_lista)
-        
-        btn_nueva = QPushButton("📄 Crear Nueva Plantilla")
-        btn_nueva.setStyleSheet("background-color: #0078d7; color: white; padding: 8px; border-radius: 3px; font-weight: bold;")
-        btn_nueva.clicked.connect(self.crear_plantilla)
-        
-        barra_sup.addWidget(self.buscador)
-        barra_sup.addWidget(btn_nueva)
-        layout.addLayout(barra_sup)
-
-        # Panel Dividido (Splitter)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        
-        # PANEL IZQUIERDO: Lista de Plantillas Limpia
-        w_izq = QWidget(); l_izq = QVBoxLayout(w_izq); l_izq.setContentsMargins(0,0,0,0)
-        
-        self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Título de la Plantilla", "ID"])
-        self.tree.hideColumn(1)
-        
-        # == CORRECCIÓN DEL MARGEN IZQUIERDO ==
-        self.tree.setRootIsDecorated(False) # Esto saca el espacio invisible de la flechita
-        
-        self.tree.setStyleSheet("""
-            QTreeWidget { background-color: white; border: 1px solid #ccc; font-size: 10pt; } 
-            QTreeWidget::item { padding: 8px; } /* Un poquito más de aire arriba y abajo */
-            QTreeWidget::item:selected { background-color: #b3e5fc; color: black; font-weight: bold; }
-        """)
-        self.tree.itemSelectionChanged.connect(self.mostrar_preview)
-        l_izq.addWidget(self.tree)
-        
-        # Botonera Inferior Izquierda (Editar / Eliminar)
-        f_btn_izq = QHBoxLayout()
-        btn_editar = QPushButton("✏️ Editar")
-        btn_editar.setStyleSheet("background-color: white; border: 1px solid #ccc; padding: 6px; font-weight: bold;")
-        btn_editar.clicked.connect(self.editar_plantilla)
-        
-        btn_eliminar = QPushButton("🗑️ Eliminar")
-        btn_eliminar.setStyleSheet("background-color: #fce4e4; color: #c62828; border: 1px solid #ffcdd2; padding: 6px; font-weight: bold;")
-        btn_eliminar.clicked.connect(self.eliminar_plantilla)
-        
-        f_btn_izq.addWidget(btn_editar)
-        f_btn_izq.addWidget(btn_eliminar)
-        l_izq.addLayout(f_btn_izq)
-
-        # PANEL DERECHO: Vista Previa y Botón Insertar
-        w_der = QWidget(); l_der = QVBoxLayout(w_der); l_der.setContentsMargins(0,0,0,0)
-        lbl_prev = QLabel("<b>Vista Previa de la Plantilla (Mostrando etiquetas reales):</b>")
-        l_der.addWidget(lbl_prev)
-        
-        self.preview = QTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setStyleSheet("background-color: white; border: 1px solid #ccc; padding: 15px; font-family: Arial; font-size: 11pt;")
-        l_der.addWidget(self.preview)
-        
-        btn_insertar = QPushButton("✔️ AUTO-COMPLETAR E INSERTAR EN EL ESCRITO")
-        btn_insertar.setStyleSheet("background-color: #4CAF50; color: white; padding: 12px; border-radius: 4px; font-weight: bold; font-size: 11pt;")
-        btn_insertar.clicked.connect(self.insertar_plantilla)
-        l_der.addWidget(btn_insertar)
-
-        # Armado del Splitter con la nueva distribución
-        splitter.addWidget(w_izq)
-        splitter.addWidget(w_der)
-        splitter.setSizes([450, 850]) 
-        layout.addWidget(splitter)
-        
+        QMessageBox.information(self, "Éxito", "Plantilla guardada correctamente.")
         self.cargar_lista()
-
-    def cargar_lista(self):
-        self.tree.clear()
-        filtro = self.buscador.text()
-        conn = base_datos.conectar(); cursor = conn.cursor()
-        if filtro:
-            cursor.execute("SELECT id, titulo FROM plantillas WHERE titulo LIKE ? OR contenido LIKE ?", ('%'+filtro+'%', '%'+filtro+'%'))
-        else:
-            cursor.execute("SELECT id, titulo FROM plantillas")
-            
-        for fila in cursor.fetchall():
-            item = QTreeWidgetItem([fila[1], str(fila[0])])
-            self.tree.addTopLevelItem(item)
-        conn.close()
-
-    def mostrar_preview(self):
-        item = self.tree.currentItem()
-        if item:
-            conn = base_datos.conectar()
-            res = conn.execute("SELECT contenido FROM plantillas WHERE id=?", (item.text(1),)).fetchone()
-            conn.close()
-            if res: self.preview.setHtml(res[0])
-        else:
-            self.preview.clear()
-
-    def crear_plantilla(self):
-        dlg = EditorDePlantilla(self)
-        if dlg.exec():
-            self.cargar_lista()
-
-    def editar_plantilla(self):
-        item = self.tree.currentItem()
-        if not item: return
-        conn = base_datos.conectar()
-        res = conn.execute("SELECT titulo, contenido FROM plantillas WHERE id=?", (item.text(1),)).fetchone()
-        conn.close()
-        if res:
-            dlg = EditorDePlantilla(self, id_plantilla=item.text(1), titulo=res[0], html=res[1])
-            if dlg.exec():
-                self.cargar_lista()
-                self.mostrar_preview()
+        self.limpiar_editor()
 
     def eliminar_plantilla(self):
-        item = self.tree.currentItem()
-        if item:
-            reply = QMessageBox.question(self, 'Borrar', '¿Eliminar plantilla definitivamente?', QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-            if reply == QMessageBox.StandardButton.Yes:
-                conn = base_datos.conectar()
-                conn.execute("DELETE FROM plantillas WHERE id=?", (item.text(1),))
-                conn.commit(); conn.close()
-                self.cargar_lista()
-                self.preview.clear()
+        if not self.plantilla_actual_id: return
+        
+        rta = QMessageBox.question(self, "Confirmar", "¿Seguro que desea eliminar esta plantilla?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if rta == QMessageBox.StandardButton.Yes:
+            conn = base_datos.conectar()
+            conn.execute("DELETE FROM plantillas WHERE id=?", (self.plantilla_actual_id,))
+            conn.commit()
+            conn.close()
+            self.cargar_lista()
+            self.limpiar_editor()
 
-    def autocompletar_variables(self, html):
+    # ==========================================
+    # LÓGICA DE INYECCIÓN (JINJA2 -> QUILL)
+    # ==========================================
+    def procesar_y_enviar(self):
+        texto_plantilla = self.ent_contenido.toPlainText()
+        if not texto_plantilla.strip():
+            QMessageBox.warning(self, "Atención", "El contenido está vacío.")
+            return
+
         conn = base_datos.conectar()
-        exp = conn.execute("SELECT caratula, nro_exp, juzgado, act_nom, act_cuit, act_dom, dem_nom, dem_cuit, dem_dom FROM expedientes WHERE id=?", (self.id_exp_actual,)).fetchone()
-        conn.close()
-        
-        if not exp: return html
-
-        reemplazos = {
-            "[@CARATULA]": exp[0] or "...", "[@NRO_EXP]": exp[1] or "...", "[@JUZGADO]": exp[2] or "...",
-            "[@ACTOR_NOMBRE]": exp[3] or "...", "[@ACTOR_DNI]": exp[4] or "...", "[@ACTOR_DOMICILIO]": exp[5] or "...",
-            "[@DEMANDADO_NOMBRE]": exp[6] or "...", "[@DEMANDADO_DNI]": exp[7] or "...", "[@DEMANDADO_DOMICILIO]": exp[8] or "..."
-        }
-        
-        html_final = html
-        for etiqueta, dato_real in reemplazos.items():
-            html_final = html_final.replace(etiqueta, f"<span style='background-color:#e8f5e9;'><b>{dato_real}</b></span>")
-            
-        return html_final
-
-    def insertar_plantilla(self):
-        if not self.preview.toPlainText().strip(): return
-        html_crudo = self.preview.toHtml()
-        html_procesado = self.autocompletar_variables(html_crudo)
-        self.editor_padre.insertHtml(html_procesado)
-        self.accept()
+        exp = conn.execute("SELECT * FROM expedientes WHERE id=?", (self.id_exp,)).fetchone()
+        usu = conn.execute("SELECT * FROM configuracion LIMIT 1").fetchone()
