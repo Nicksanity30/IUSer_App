@@ -2,9 +2,11 @@ import sys
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QLineEdit, QTreeWidget, QTreeWidgetItem, 
                              QLabel, QFrame, QSplitter, QDialog, QFormLayout, 
-                             QComboBox, QTabWidget, QCalendarWidget, QScrollArea, QMessageBox, QMenuBar, QCheckBox)
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QColor, QAction
+                             QComboBox, QTabWidget, QCalendarWidget, QScrollArea, 
+                             QMessageBox, QMenuBar, QCheckBox, QTabBar, QListWidget, 
+                             QGridLayout, QHeaderView, QGraphicsDropShadowEffect) # <--- Agregamos QGraphicsDropShadowEffect
+from PyQt6.QtCore import Qt, QUrl, QSettings
+from PyQt6.QtGui import QFont, QColor, QAction, QDesktopServices, QPixmap, QPainter, QPen
 import base_datos
 from folder_view import VentanaCarpeta
 from agenda_view import VentanaAgenda
@@ -12,12 +14,13 @@ from datetime import datetime
 
 JUZGADOS_NQN = ["JUZGADO CIVIL N° 1 - NEUQUÉN", "JUZGADO CIVIL N° 2 - NEUQUÉN", "JUZGADO CIVIL N° 3 - NEUQUÉN", "JUZGADO CIVIL N° 1 - CUTRAL CO", "JUZGADO FEDERAL - NEUQUÉN"]
 
-BG_POSTIT = "#fffde7"      
-BG_PANEL_IZQ = "#ffffff"   
-BG_BLANCO = "#ffffff"      
-SELECCION_AZUL = "#b3e5fc" 
+# === PALETA DE COLORES PREMIUM ===
+BG_POSTIT = "#fffde7"      # Amarillo pastel (papel viejo para la lista de agenda)
+BG_PANEL_IZQ = "#ffffff"   # Fondo de los contenedores
+BG_BLANCO = "#ffffff"      # Color papel blanco hueso
+SELECCION_AZUL = "#b3e5fc" # Selección azul suave
 
-# === NUEVA VENTANA: CONFIGURACIÓN DE USUARIO ===
+# === VENTANA: CONFIGURACIÓN DE USUARIO ===
 class VentanaPerfil(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,7 +29,6 @@ class VentanaPerfil(QDialog):
         self.setStyleSheet(f"background-color: {BG_POSTIT};")
         
         layout = QVBoxLayout(self)
-        
         lbl_info = QLabel("<b>Complete sus datos para automatizar el Membrete en sus PDFs:</b>")
         layout.addWidget(lbl_info)
         
@@ -85,26 +87,182 @@ class VentanaPerfil(QDialog):
         QMessageBox.information(self, "Guardado", "Perfil actualizado correctamente.")
         self.accept()
 
+# === NUEVA VENTANA: CONFIGURAR ENLACES RÁPIDOS ===
+class VentanaConfigEnlaces(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Configurar Accesos Rápidos")
+        self.resize(500, 450)
+        self.setStyleSheet(f"background-color: {BG_BLANCO};")
+        self.settings = QSettings("IUSer", "Preferencias")
+        
+        layout = QVBoxLayout(self)
+        tabs = QTabWidget()
+        layout.addWidget(tabs)
 
+        # Tab 1: Sitios Web
+        tab_webs = QWidget()
+        form_webs = QFormLayout(tab_webs)
+        self.webs_inputs = []
+        for i in range(1, 5):
+            nom = QLineEdit(self.settings.value(f"web{i}_nom", f"Sitio Web {i}"))
+            url = QLineEdit(self.settings.value(f"web{i}_url", "https://"))
+            form_webs.addRow(f"Nombre Botón {i}:", nom)
+            form_webs.addRow(f"URL {i}:", url)
+            self.webs_inputs.append((nom, url))
+        tabs.addTab(tab_webs, "🌐 Sitios Web")
+
+        # Tab 2: Códigos y Leyes
+        tab_codigos = QWidget()
+        form_codigos = QFormLayout(tab_codigos)
+        self.codigos_inputs = []
+        for i in range(1, 5):
+            nom = QLineEdit(self.settings.value(f"cod{i}_nom", f"Código {i}"))
+            url = QLineEdit(self.settings.value(f"cod{i}_url", "https://"))
+            form_codigos.addRow(f"Nombre Código {i}:", nom)
+            form_codigos.addRow(f"URL {i}:", url)
+            self.codigos_inputs.append((nom, url))
+        tabs.addTab(tab_codigos, "📚 Códigos y Leyes")
+
+        btn_guardar = QPushButton("💾 GUARDAR ENLACES")
+        btn_guardar.setStyleSheet("background-color: #1976d2; color: white; padding: 10px; font-weight: bold; border-radius: 4px;")
+        btn_guardar.clicked.connect(self.guardar_enlaces)
+        layout.addWidget(btn_guardar)
+
+    def guardar_enlaces(self):
+        for i, (nom, url) in enumerate(self.webs_inputs, 1):
+            self.settings.setValue(f"web{i}_nom", nom.text())
+            self.settings.setValue(f"web{i}_url", url.text())
+        for i, (nom, url) in enumerate(self.codigos_inputs, 1):
+            self.settings.setValue(f"cod{i}_nom", nom.text())
+            self.settings.setValue(f"cod{i}_url", url.text())
+            
+        QMessageBox.information(self, "Éxito", "Enlaces actualizados correctamente.")
+        self.accept()
+
+# === NUEVO WIDGET: CALENDARIO CON REMARCO Y ANILLADO (EFECTO 3D) ===
+class CalendarioAnilladoWidget(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setStyleSheet(f"background-color: {BG_BLANCO}; border-radius: 6px;")
+        
+        # MAGIA 3D: Sombra paralela para que parezca un taco de papel
+        sombra = QGraphicsDropShadowEffect(self)
+        sombra.setBlurRadius(12)
+        sombra.setXOffset(3)
+        sombra.setYOffset(5)
+        sombra.setColor(QColor(0, 0, 0, 70)) # Sombra suave
+        self.setGraphicsEffect(sombra)
+
+        layout = QVBoxLayout(self)
+        # 20px arriba para dibujar los anillos
+        layout.setContentsMargins(5, 20, 5, 5) 
+        layout.setSpacing(0)
+
+        # Calendario
+        self.calendar = QCalendarWidget(self)
+        self.calendar.setGridVisible(True)
+        layout.addWidget(self.calendar)
+
+        # CSS Corregido
+        self.calendar.setStyleSheet(f"""
+            QCalendarWidget QWidget {{ 
+                alternate-background-color: {BG_BLANCO}; 
+            }} 
+            #qt_calendar_navigationbar {{
+                background-color: {BG_BLANCO};
+                border: none;
+            }}
+            /* CORRECCIÓN: Damos padding a los botones para que no tape el texto la flecha */
+            QCalendarWidget QToolButton {{
+                color: #111111; 
+                background-color: transparent;
+                font-size: 11pt;
+                font-weight: bold;
+                padding-right: 15px; /* <--- MAGIA QUE ARREGLA LA FLECHITA */
+            }}
+            QCalendarWidget QToolButton:hover {{
+                background-color: #e0e0e0;
+                border-radius: 4px;
+            }}
+            QCalendarWidget QSpinBox {{
+                color: #111111;
+                background-color: transparent;
+                font-weight: bold;
+                font-size: 11pt;
+                padding-right: 15px;
+            }}
+            /* NUEVO COLOR DE BARRA DE DÍAS: Un Taupe / Gris cálido súper profesional */
+            QCalendarWidget QHeaderView {{
+                background-color: #D7CCC8; 
+                color: #333333;
+                font-weight: bold;
+                font-size: 8pt;
+                border: none;
+                border-bottom: 2px solid #BCAAA4; /* Borde oscuro para dar volumen */
+            }}
+            QCalendarWidget QHeaderView::section {{
+                background-color: #D7CCC8;
+                color: #333333;
+                border: none;
+                padding: 4px;
+            }}
+            QCalendarWidget QAbstractItemView:enabled {{ 
+                font-size: 8pt; 
+                background-color: {BG_BLANCO}; 
+                selection-background-color: {SELECCION_AZUL}; 
+                selection-color: black; 
+                border: none;
+            }}
+        """)
+
+    # DIBUJO DE ANILLOS A MANO
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        pen = QPen(QColor("#999999"), 1.5)
+        painter.setPen(pen)
+        
+        ancho = self.width()
+        
+        # Bucle que dibuja un anillo cada 20 píxeles
+        for x in range(15, ancho - 15, 20):
+            painter.setBrush(QColor("#e0e0e0"))
+            painter.drawRoundedRect(x, 2, 6, 18, 3, 3)
+            
+            painter.setBrush(QColor("#222222"))
+            painter.drawEllipse(x + 1, 14, 4, 4)
+
+# === VENTANA PRINCIPAL ===
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("IUSer - Gestión Jurídica Profesional")
         self.setMinimumSize(1100, 750)
         self.showMaximized()
-        self.setStyleSheet(f"QMainWindow {{ background-color: {BG_POSTIT}; }}")
+        
+        # === TAPETE CREMA NEUTRO Y DESCANSADO ===
+        self.setStyleSheet("QMainWindow { background-color: #F4EFEA; }")
+        
+        self.settings = QSettings("IUSer", "Preferencias")
+        self.inicializar_enlaces_por_defecto()
 
         self.carpetas_abiertas = {}
         self.agenda_abierta = None
 
-        self.crear_menu_superior() # NUEVO LLAMADO
+        self.crear_menu_superior()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.central_widget.setStyleSheet(f"background-color: {BG_POSTIT};")
+        self.central_widget.setStyleSheet("background-color: transparent;") # Transparente para ver el tapete crema
         self.layout_principal = QHBoxLayout(self.central_widget)
+        self.layout_principal.setContentsMargins(15, 15, 15, 15)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setStyleSheet("QSplitter::handle { background-color: transparent; width: 10px; }")
         self.layout_principal.addWidget(self.splitter)
 
         self.setup_panel_izquierdo()
@@ -113,31 +271,60 @@ class MainWindow(QMainWindow):
         
         self.verificar_alertas_hoy()
 
-    # === EL NUEVO MENÚ SUPERIOR (Zona Roja) ===
+    def inicializar_enlaces_por_defecto(self):
+        if not self.settings.contains("web1_nom"):
+            self.settings.setValue("web1_nom", "🏛️ Consulta Web (Jus Neuquén)")
+            self.settings.setValue("web1_url", "https://www.jusneuquen.gov.ar/")
+            self.settings.setValue("web2_nom", "⚖️ DEXTRA / Ingresos")
+            self.settings.setValue("web2_url", "https://dextra.jusneuquen.gov.ar/")
+            self.settings.setValue("web3_nom", "AFIP")
+            self.settings.setValue("web3_url", "https://www.afip.gob.ar/")
+            self.settings.setValue("web4_nom", "Boletín Oficial")
+            self.settings.setValue("web4_url", "https://www.boletinoficial.gob.ar/")
+            
+            self.settings.setValue("cod1_nom", "CPCC\nNeuquén")
+            self.settings.setValue("cod1_url", "http://biblioteca.jusneuquen.gov.ar/")
+            self.settings.setValue("cod2_nom", "Código\nCivil y Com.")
+            self.settings.setValue("cod2_url", "http://servicios.infoleg.gob.ar/infolegInternet/anexos/235000-239999/235975/norma.htm")
+            self.settings.setValue("cod3_nom", "Código\nFiscal")
+            self.settings.setValue("cod3_url", "https://dprneuquen.gob.ar/")
+            self.settings.setValue("cod4_nom", "Const.\nNacional")
+            self.settings.setValue("cod4_url", "http://servicios.infoleg.gob.ar/infolegInternet/anexos/0-4999/804/norma.htm")
+
     def crear_menu_superior(self):
         barra_menu = self.menuBar()
-        # Le damos un color gris/azulado elegante
         barra_menu.setStyleSheet("QMenuBar { background-color: #eceff1; font-weight: bold; padding: 3px; border-bottom: 1px solid #ccc; } QMenuBar::item:selected { background-color: #cfd8dc; }")
         
         menu_perfil = barra_menu.addMenu("👤 Mi Perfil")
-        
         act_configurar = QAction("⚙️ Configurar Datos y Membrete...", self)
         act_configurar.triggered.connect(self.abrir_perfil)
         menu_perfil.addAction(act_configurar)
         
-        # Dejamos preparados los menús futuros
         menu_herramientas = barra_menu.addMenu("🛠️ Herramientas Rápidas")
         menu_herramientas.addAction(QAction("Calculadora de Plazos (Próximamente)", self))
         menu_herramientas.addAction(QAction("Repositorio de Plantillas (Próximamente)", self))
+
+        menu_enlaces = barra_menu.addMenu("🔗 Accesos y Enlaces")
+        act_editar_enlaces = QAction("⚙️ Configurar Accesos Rápidos...", self)
+        act_editar_enlaces.triggered.connect(self.abrir_config_enlaces)
+        menu_enlaces.addAction(act_editar_enlaces)
 
     def abrir_perfil(self):
         dlg = VentanaPerfil(self)
         dlg.exec()
 
+    def abrir_config_enlaces(self):
+        dlg = VentanaConfigEnlaces(self)
+        if dlg.exec():
+            self.actualizar_botones_enlaces()
+
     def verificar_alertas_hoy(self):
         hoy_str = datetime.now().strftime("%d/%m/%Y")
         conn = base_datos.conectar()
-        tareas_hoy = conn.execute("SELECT hora, descripcion FROM tareas WHERE fecha=? AND completada=0", (hoy_str,)).fetchall()
+        try:
+            tareas_hoy = conn.execute("SELECT hora, descripcion FROM tareas WHERE fecha=? AND completada=0", (hoy_str,)).fetchall()
+        except:
+            tareas_hoy = []
         conn.close()
 
         if tareas_hoy:
@@ -151,100 +338,226 @@ class MainWindow(QMainWindow):
             msg.setStyleSheet("QMessageBox { background-color: #ffcdd2; } QLabel { color: #b71c1c; font-size: 11pt; } QPushButton { background-color: white; color: black; border: 1px solid #b71c1c; padding: 6px; font-weight: bold; border-radius: 4px;} QPushButton:hover { background-color: #ffebee; }")
             msg.exec()
 
+    # --- PANEL IZQUIERDO (DASHBOARD) ---
     def setup_panel_izquierdo(self):
         self.panel_izq = QFrame()
-        self.panel_izq.setFixedWidth(260)
-        self.panel_izq.setStyleSheet(f"background-color: {BG_PANEL_IZQ}; border-right: 1px solid #e0e0e0;")
+        self.panel_izq.setFixedWidth(280)
+        # Hacemos que el panel izquierdo sea transparente para que las cosas "floten" en el tapete crema
+        self.panel_izq.setStyleSheet("background-color: transparent; border: none;")
         layout = QVBoxLayout(self.panel_izq)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(0, 0, 10, 0) # Margen derecho para separarlo de los expedientes
+        layout.setSpacing(15) # Más espacio entre el calendario, agenda, y botones
 
-        lbl_trabajando = QLabel("TRABAJANDO EN:")
-        lbl_trabajando.setFont(QFont("Arial", 9, QFont.Weight.Bold))
-        lbl_trabajando.setStyleSheet("border: none; color: #333;")
-        layout.addWidget(lbl_trabajando)
+        # 1. Calendario Anillado 3D
+        self.widget_calendario = CalendarioAnilladoWidget()
+        self.mini_cal = self.widget_calendario.calendar
+        self.mini_cal.selectionChanged.connect(self.actualizar_mini_agenda)
+        layout.addWidget(self.widget_calendario)
 
-        self.contenedor_botones = QWidget()
-        self.contenedor_botones.setStyleSheet("border: none;")
-        self.layout_botones = QVBoxLayout(self.contenedor_botones)
-        self.layout_botones.setContentsMargins(0, 0, 0, 0)
-        self.layout_botones.setSpacing(5)
+        # 2. Agenda Vademécum
+        lbl_agenda = QLabel("📌 TAREAS DEL DÍA:")
+        lbl_agenda.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        lbl_agenda.setStyleSheet("border: none; color: #555;")
+        layout.addWidget(lbl_agenda)
+
+        self.lista_tareas = QListWidget()
+        self.lista_tareas.setFixedHeight(90)
+        self.lista_tareas.setStyleSheet(f"background-color: {BG_POSTIT}; border: 1px solid #ccc; border-radius: 4px; font-size: 9pt;")
         
-        scroll_izq = QScrollArea()
-        scroll_izq.setWidgetResizable(True)
-        scroll_izq.setStyleSheet("border: none;")
-        scroll_izq.setWidget(self.contenedor_botones)
-        layout.addWidget(scroll_izq)
+        # Efecto 3D sutil para la libretita amarilla
+        sombra_agenda = QGraphicsDropShadowEffect(self)
+        sombra_agenda.setBlurRadius(8)
+        sombra_agenda.setXOffset(2)
+        sombra_agenda.setYOffset(3)
+        sombra_agenda.setColor(QColor(0, 0, 0, 40))
+        self.lista_tareas.setGraphicsEffect(sombra_agenda)
+        
+        self.lista_tareas.doubleClicked.connect(self.abrir_agenda) 
+        layout.addWidget(self.lista_tareas)
 
-        self.actualizar_panel_izquierdo() 
+        btn_agenda = QPushButton("📅 ABRIR AGENDA COMPLETA")
+        btn_agenda.setStyleSheet("QPushButton { background-color: #ffe0b2; color: #e65100; border: 1px solid #ffcc80; padding: 6px; font-weight: bold; border-radius: 4px; font-size: 9pt; } QPushButton:hover { background-color: #ffcc80; }")
+        btn_agenda.clicked.connect(self.abrir_agenda)
+        layout.addWidget(btn_agenda)
 
-        self.mini_cal = QCalendarWidget()
-        self.mini_cal.setGridVisible(True)
-        self.mini_cal.setFixedHeight(180)
-        self.mini_cal.setStyleSheet(f"QCalendarWidget QWidget {{ alternate-background-color: {BG_BLANCO}; }} QCalendarWidget QAbstractItemView:enabled {{ font-size: 8pt; background-color: {BG_BLANCO}; selection-background-color: {SELECCION_AZUL}; selection-color: black; }}")
-        layout.addWidget(self.mini_cal)
+        linea = QFrame()
+        linea.setFrameShape(QFrame.Shape.HLine)
+        linea.setStyleSheet("border: 1px solid #dcd1c4;") # Línea suave acorde al crema
+        layout.addWidget(linea)
+
+        # 3. Enlaces y Códigos
+        self.contenedor_enlaces = QWidget()
+        self.layout_enlaces = QVBoxLayout(self.contenedor_enlaces)
+        self.layout_enlaces.setContentsMargins(0, 0, 0, 0)
+        self.layout_enlaces.setSpacing(5)
+        layout.addWidget(self.contenedor_enlaces)
+
+        self.actualizar_botones_enlaces()
+        
+        layout.addStretch()
+        self.actualizar_mini_agenda() 
         self.splitter.addWidget(self.panel_izq)
 
-    def actualizar_panel_izquierdo(self):
-        while self.layout_botones.count():
-            item = self.layout_botones.takeAt(0)
+    def actualizar_botones_enlaces(self):
+        while self.layout_enlaces.count():
+            item = self.layout_enlaces.takeAt(0)
             if item.widget(): item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    child = item.layout().takeAt(0)
+                    if child.widget(): child.widget().deleteLater()
+                item.layout().deleteLater()
 
-        btn_agenda = QPushButton("📅 MI AGENDA")
-        btn_agenda.setStyleSheet("QPushButton { background-color: #ffe0b2; color: #e65100; border: 1px solid #ffcc80; padding: 8px; font-weight: bold; border-radius: 4px; } QPushButton:hover { background-color: #ffcc80; }")
-        btn_agenda.clicked.connect(self.abrir_agenda)
-        self.layout_botones.addWidget(btn_agenda)
+        # Botones de Webs
+        lbl_links = QLabel("🔗 ACCESOS WEB:")
+        lbl_links.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        lbl_links.setStyleSheet("border: none; color: #555;")
+        self.layout_enlaces.addWidget(lbl_links)
 
-        for id_exp, ventana in self.carpetas_abiertas.items():
-            conn = base_datos.conectar()
-            res = conn.execute("SELECT caratula FROM expedientes WHERE id=?", (id_exp,)).fetchone()
+        for i in range(1, 5):
+            nom = self.settings.value(f"web{i}_nom", f"Sitio {i}")
+            url = self.settings.value(f"web{i}_url", "https://")
+            btn = QPushButton(nom)
+            btn.setStyleSheet("text-align: left; padding: 5px; background: #ffffff; border: 1px solid #b0bec5; border-radius: 4px; font-size: 8pt; color: #1565c0;")
+            btn.clicked.connect(lambda checked, u=url: QDesktopServices.openUrl(QUrl(u)))
+            self.layout_enlaces.addWidget(btn)
+
+        # Grilla 2x2 Códigos
+        lbl_cod = QLabel("📚 CÓDIGOS Y LEYES:")
+        lbl_cod.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        lbl_cod.setStyleSheet("border: none; color: #555; margin-top: 5px;")
+        self.layout_enlaces.addWidget(lbl_cod)
+
+        grid_codigos = QGridLayout()
+        grid_codigos.setSpacing(4)
+        
+        posiciones = [(0,0), (0,1), (1,0), (1,1)]
+        for i in range(1, 5):
+            nom = self.settings.value(f"cod{i}_nom", f"Cod {i}")
+            url = self.settings.value(f"cod{i}_url", "https://")
+            btn_cod = QPushButton(nom)
+            btn_cod.setMinimumHeight(45) 
+            btn_cod.setStyleSheet("background: #f1f8e9; border: 1px solid #aed581; border-radius: 4px; font-size: 8pt; font-weight: bold; color: #33691e;")
+            btn_cod.clicked.connect(lambda checked, u=url: QDesktopServices.openUrl(QUrl(u)))
+            
+            row, col = posiciones[i-1]
+            grid_codigos.addWidget(btn_cod, row, col)
+
+        self.layout_enlaces.addLayout(grid_codigos)
+
+    def actualizar_mini_agenda(self):
+        self.lista_tareas.clear()
+        fecha_sel = self.mini_cal.selectedDate().toString("dd/MM/yyyy")
+        
+        conn = base_datos.conectar()
+        try:
+            tareas = conn.execute("SELECT hora, descripcion FROM tareas WHERE fecha=? AND completada=0 ORDER BY hora", (fecha_sel,)).fetchall()
+            if not tareas:
+                self.lista_tareas.addItem("✅ Sin tareas pendientes.")
+            else:
+                for t in tareas:
+                    self.lista_tareas.addItem(f"⏰ {t[0]} hs - {t[1]}")
+        except Exception:
+            self.lista_tareas.addItem("No hay datos de agenda.")
+        finally:
             conn.close()
-            nombre = (res[0][:28] + "...") if res and len(res[0]) > 28 else (res[0] if res else "Expediente")
-            
-            btn_exp = QPushButton(f"📂 {nombre}")
-            btn_exp.setStyleSheet("QPushButton { background-color: white; color: #333; border: 1px solid #ccc; padding: 6px; text-align: left; border-radius: 4px; } QPushButton:hover { background-color: #e3f2fd; }")
-            btn_exp.clicked.connect(lambda checked, v=ventana: v.activateWindow())
-            self.layout_botones.addWidget(btn_exp)
-            
-        self.layout_botones.addStretch()
 
+    # --- PANEL DERECHO (CAJÓN DE FICHEROS) ---
     def setup_panel_derecho(self):
         self.panel_der = QWidget()
-        layout = QVBoxLayout(self.panel_der)
+        layout_principal = QVBoxLayout(self.panel_der)
+        layout_principal.setContentsMargins(0, 0, 0, 0) 
+
+        self.tabs = QTabWidget()
+        self.tabs.setTabsClosable(True)
+        self.tabs.tabCloseRequested.connect(self.cerrar_pestana)
+        
+        # Efecto 3D para el cajón de ficheros completo
+        sombra_fichero = QGraphicsDropShadowEffect(self)
+        sombra_fichero.setBlurRadius(15)
+        sombra_fichero.setXOffset(5)
+        sombra_fichero.setYOffset(5)
+        sombra_fichero.setColor(QColor(0, 0, 0, 50))
+        self.tabs.setGraphicsEffect(sombra_fichero)
+
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane { 
+                border: 1px solid #B0A890; 
+                background-color: #FAFAFA; 
+                border-radius: 6px;
+                top: -1px; 
+            }
+            QTabBar::tab {
+                background-color: #E6E1D1; 
+                border: 1px solid #B0A890;
+                border-bottom-color: #B0A890; 
+                border-top-left-radius: 12px;  
+                border-top-right-radius: 4px;   
+                padding: 8px 16px;
+                margin-right: 3px; 
+                color: #444;
+                font-family: 'Segoe UI', Arial;
+                font-size: 10pt;
+            }
+            QTabBar::tab:selected {
+                background-color: #FAFAFA; 
+                border-bottom-color: #FAFAFA; 
+                border-top: 3px solid #8B0000; 
+                color: black;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #F0EAD6; 
+            }
+        """)
+        layout_principal.addWidget(self.tabs)
+
+        self.tab_grilla = QWidget()
+        layout_grilla = QVBoxLayout(self.tab_grilla)
+        layout_grilla.setContentsMargins(10, 10, 10, 10)
 
         barra_sup = QHBoxLayout()
         self.btn_nuevo = QPushButton("+ NUEVO EXPEDIENTE")
-        self.btn_nuevo.setStyleSheet("background-color: #c8e6c9; color: #2e7d32; border: 1px solid #a5d6a7; padding: 8px; font-weight: bold; border-radius: 4px;")
+        self.btn_nuevo.setStyleSheet("background-color: #c8e6c9; color: #2e7d32; border: 1px solid #a5d6a7; padding: 6px 12px; font-weight: bold; border-radius: 4px;")
         self.btn_nuevo.clicked.connect(self.formulario_expediente)
         
         self.buscador = QLineEdit()
-        self.buscador.setPlaceholderText("Buscar por carátula o número...")
-        self.buscador.setStyleSheet(f"background-color: {BG_BLANCO}; padding: 8px; border: 1px solid #ccc; border-radius: 4px;")
+        self.buscador.setPlaceholderText("🔍 Buscar por carátula o número (Filtro en tiempo real)...")
+        self.buscador.setStyleSheet(f"background-color: {BG_BLANCO}; padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 10pt;")
         self.buscador.textChanged.connect(self.actualizar_lista)
 
         barra_sup.addWidget(self.btn_nuevo)
         barra_sup.addWidget(self.buscador)
-        layout.addLayout(barra_sup)
+        layout_grilla.addLayout(barra_sup)
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(3)
         self.tree.setHeaderLabels(["Nro Expediente", "Carátula", "ID"])
         self.tree.setColumnWidth(0, 150)
         self.tree.hideColumn(2)
-        self.tree.setStyleSheet(f"QTreeWidget {{ background-color: {BG_BLANCO}; alternate-background-color: #fcfcfc; border: 1px solid #ccc; font-size: 10pt; }} QTreeWidget::item:selected {{ background-color: {SELECCION_AZUL}; color: black; font-weight: bold; }} QHeaderView::section {{ background-color: #e0e0e0; padding: 4px; border: 1px solid #ccc; font-weight: bold; }}")
+        self.tree.setStyleSheet(f"""
+            QTreeWidget {{ background-color: {BG_BLANCO}; alternate-background-color: #f7f7f7; border: 1px solid #ccc; font-size: 9pt; border-radius: 4px; }}
+            QTreeWidget::item {{ height: 22px; padding: 0px; }}
+            QTreeWidget::item:selected {{ background-color: {SELECCION_AZUL}; color: black; font-weight: bold; }}
+            QHeaderView::section {{ background-color: #e0e0e0; padding: 4px; border: 1px solid #ccc; font-weight: bold; font-size: 9pt; }}
+        """)
         self.tree.setAlternatingRowColors(True)
         self.tree.itemDoubleClicked.connect(self.abrir_carpeta)
         self.tree.itemSelectionChanged.connect(self.mostrar_previa)
-        layout.addWidget(self.tree)
+        layout_grilla.addWidget(self.tree)
 
         self.panel_inf = QFrame()
-        self.panel_inf.setFixedHeight(100)
+        self.panel_inf.setFixedHeight(70)
         self.panel_inf.setStyleSheet(f"background-color: {BG_BLANCO}; border: 1px solid #b3d7ff; border-radius: 4px;")
         layout_inf = QVBoxLayout(self.panel_inf)
+        layout_inf.setContentsMargins(5, 5, 5, 5)
         self.lbl_previa = QLabel("Seleccione un expediente para ver detalles...")
-        self.lbl_previa.setFont(QFont("Arial", 10))
+        self.lbl_previa.setFont(QFont("Segoe UI", 9))
         layout_inf.addWidget(self.lbl_previa)
-        layout.addWidget(self.panel_inf)
+        layout_grilla.addWidget(self.panel_inf)
 
+        self.tabs.addTab(self.tab_grilla, "🏠 Listado de Causas")
+        self.tabs.tabBar().setTabButton(0, QTabBar.ButtonPosition.RightSide, None)
         self.splitter.addWidget(self.panel_der)
 
     def actualizar_lista(self):
@@ -271,7 +584,9 @@ class MainWindow(QMainWindow):
     def abrir_carpeta_por_id(self, id_exp):
         id_exp = str(id_exp)
         if id_exp in self.carpetas_abiertas:
-            self.carpetas_abiertas[id_exp].activateWindow()
+            widget_carpeta = self.carpetas_abiertas[id_exp]
+            idx = self.tabs.indexOf(widget_carpeta)
+            if idx != -1: self.tabs.setCurrentIndex(idx)
             return
             
         conn = base_datos.conectar()
@@ -280,13 +595,35 @@ class MainWindow(QMainWindow):
         
         if info:
             def al_cerrar_carpeta(id_e):
-                if id_e in self.carpetas_abiertas: del self.carpetas_abiertas[id_e]
-                self.actualizar_panel_izquierdo()
+                if id_e in self.carpetas_abiertas:
+                    widget = self.carpetas_abiertas[id_e]
+                    idx = self.tabs.indexOf(widget)
+                    if idx != -1: self.tabs.removeTab(idx)
+                    del self.carpetas_abiertas[id_e]
 
             carpeta = VentanaCarpeta(id_exp, info, callback_cerrar=al_cerrar_carpeta)
+            carpeta.setStyleSheet(f"background-color: {BG_BLANCO}; border: none;")
             self.carpetas_abiertas[id_exp] = carpeta
-            carpeta.show()
-            self.actualizar_panel_izquierdo() 
+            
+            titulo_pestana = f"📂 {info[0][:15]}..." if len(info[0]) > 15 else f"📂 {info[0]}"
+            idx = self.tabs.addTab(carpeta, titulo_pestana)
+            
+            self.tabs.setTabToolTip(idx, f"Expediente N°: {info[1]}\nCarátula: {info[0]}")
+            self.tabs.setCurrentIndex(idx)
+
+    def cerrar_pestana(self, index):
+        if index == 0: return
+        widget = self.tabs.widget(index)
+        
+        id_a_eliminar = None
+        for id_exp, vent in self.carpetas_abiertas.items():
+            if vent == widget:
+                id_a_eliminar = id_exp
+                break
+                
+        if id_a_eliminar: del self.carpetas_abiertas[id_a_eliminar]
+        self.tabs.removeTab(index)
+        widget.deleteLater()
 
     def abrir_agenda(self):
         if self.agenda_abierta is None: self.agenda_abierta = VentanaAgenda(callback_abrir_carpeta=self.abrir_carpeta_por_id)
